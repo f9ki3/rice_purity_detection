@@ -148,8 +148,7 @@ def analyze_image(img):
 
     cv2.putText(original, f"Purity: {purity}%", (20, 40),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 0), 2)
-    cv2.putText(original, f"Rice: {rice_count}  Foreign: {foreign_count}", (20, 80),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    
 
     return original, thresh, rice_count, foreign_count, total, purity, contamination
 
