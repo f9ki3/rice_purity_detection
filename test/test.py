@@ -138,7 +138,7 @@ print(f"Rice           : {rice_count}")
 print(f"Foreign objects: {foreign_count}")
 
 # Save result
-cv2.imwrite("result.jpg", original)
+cv2.imwrite("./test/result.jpg", original)
 print("\nSaved → result.jpg")
 
 # Show windows

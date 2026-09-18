@@ -2,6 +2,7 @@ from flask import Flask, render_template, Response, request
 import cv2
 import numpy as np
 import os
+import platform
 from datetime import datetime
 from werkzeug.utils import secure_filename
 
@@ -16,26 +17,61 @@ ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "bmp", "webp"}
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB
 
-# ---------- Camera ----------
-camera = None
-try:
-    camera = cv2.VideoCapture("/dev/video0")
-    if not camera.isOpened():
-        camera = cv2.VideoCapture(0)
-    if not camera.isOpened():
-        camera = None
-        print("⚠ No camera found")
-except Exception as e:
-    camera = None
-    print(f"Camera error: {e}")
+
+# ---------- Cross-platform Camera Initialization ----------
+def init_camera():
+    """
+    Try to open a working camera on Windows / Linux / macOS.
+    Returns an opened VideoCapture object or None.
+    """
+    system = platform.system()
+
+    # Preferred backends per OS
+    if system == "Windows":
+        backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]
+    elif system == "Darwin":          # macOS
+        backends = [cv2.CAP_AVFOUNDATION, cv2.CAP_ANY]
+    else:                             # Linux and others
+        backends = [cv2.CAP_V4L2, cv2.CAP_ANY]
+
+    # Try indices 0 → 4 with each backend
+    for backend in backends:
+        for index in range(5):
+            cap = cv2.VideoCapture(index, backend)
+            if not cap.isOpened():
+                cap.release()
+                continue
+
+            # Verify we can actually read a frame
+            ret, frame = cap.read()
+            if ret and frame is not None:
+                # Optional: set a reasonable resolution
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                print(f"✓ Camera opened: index={index}, backend={backend}")
+                return cap
+
+            cap.release()
+
+    print("⚠ No usable camera found")
+    return None
+
+
+camera = init_camera()
+
 
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
+
 def generate_frames():
+    """MJPEG stream generator with black-frame fallback."""
     if camera is None:
+        # Continuous black frame so the browser never hangs
         while True:
             frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+            cv2.putText(frame, "No Camera Available", (400, 360),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
             ret, buffer = cv2.imencode(".jpg", frame)
             yield (b"--frame\r\n"
                    b"Content-Type: image/jpeg\r\n\r\n" + buffer.tobytes() + b"\r\n")
@@ -44,11 +80,19 @@ def generate_frames():
     while True:
         success, frame = camera.read()
         if not success:
-            break
-        frame = cv2.resize(frame, (1280, 720))
+            # Camera disconnected mid-stream → black frame
+            frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+            cv2.putText(frame, "Camera Lost", (480, 360),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
+        else:
+            frame = cv2.resize(frame, (1280, 720))
+
         ret, buffer = cv2.imencode(".jpg", frame)
+        if not ret:
+            continue
         yield (b"--frame\r\n"
                b"Content-Type: image/jpeg\r\n\r\n" + buffer.tobytes() + b"\r\n")
+
 
 def analyze_image(img):
     img = cv2.resize(img, (800, 600))
@@ -59,6 +103,7 @@ def analyze_image(img):
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
     _, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
+    # Make sure rice grains are white
     if np.mean(thresh) > 127:
         thresh = cv2.bitwise_not(thresh)
 
@@ -82,6 +127,7 @@ def analyze_image(img):
 
         x, y, w, h = cv2.boundingRect(cnt)
 
+        # Simple HSV rule for rice (yellowish / light)
         if 15 <= mean_h <= 45 and mean_s > 35 and mean_v > 70:
             label = "Rice"
             color = (0, 255, 0)
@@ -100,20 +146,24 @@ def analyze_image(img):
     purity = round((rice_count / total * 100), 1) if total > 0 else 0.0
     contamination = round(100 - purity, 1) if total > 0 else 0.0
 
-    # Overlay 
-    cv2.putText(original, f"Purity: {purity}%", (20, 120),
+    cv2.putText(original, f"Purity: {purity}%", (20, 40),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 0), 2)
+    cv2.putText(original, f"Rice: {rice_count}  Foreign: {foreign_count}", (20, 80),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
     return original, thresh, rice_count, foreign_count, total, purity, contamination
+
 
 @app.route("/")
 def index():
     return render_template("index.html", has_camera=camera is not None)
 
+
 @app.route("/video_feed")
 def video_feed():
     return Response(generate_frames(),
                     mimetype="multipart/x-mixed-replace; boundary=frame")
+
 
 @app.route("/capture", methods=["POST"])
 def capture():
@@ -121,7 +171,7 @@ def capture():
         return "No camera available", 400
 
     success, frame = camera.read()
-    if not success:
+    if not success or frame is None:
         return "Failed to capture frame", 500
 
     labeled, thresh, rice, foreign, total, purity, contamination = analyze_image(frame)
@@ -147,6 +197,7 @@ def capture():
         contamination=contamination,
         source="Camera Capture"
     )
+
 
 @app.route("/upload", methods=["POST"])
 def upload():
@@ -192,5 +243,11 @@ def upload():
 
     return "Invalid file type. Allowed: png, jpg, jpeg, bmp, webp", 400
 
+
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    try:
+        app.run(debug=True, host="0.0.0.0", port=5000, threaded=True)
+    finally:
+        if camera is not None:
+            camera.release()
+            print("Camera released")
