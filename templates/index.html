@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rice Quality Analyzer</title>
+
+    <!-- Bootstrap 5 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+
+    <style>
+        body {
+            background: #0d0d0d;
+            color: #fff;
+            min-height: 100vh;
+            overflow-x: hidden;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
+        .camera-wrapper {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+            background: #111;
+        }
+
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .top-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 20px 30px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
+            z-index: 20;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .brand {
+            font-size: 1.35rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .brand i {
+            color: #22c55e;
+            font-size: 1.5rem;
+        }
+
+        .controls {
+            position: absolute;
+            bottom: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 18px;
+            align-items: center;
+            z-index: 20;
+        }
+
+        /* Capture Button (Green) */
+        .btn-capture {
+            width: 78px;
+            height: 78px;
+            border-radius: 50%;
+            background: #fff;
+            border: 5px solid #22c55e;
+            color: #22c55e;
+            font-size: 1.8rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 8px 25px rgba(34, 197, 94, 0.35);
+            transition: all 0.25s ease;
+            cursor: pointer;
+        }
+
+        .btn-capture:hover:not(:disabled) {
+            transform: scale(1.08);
+            box-shadow: 0 10px 30px rgba(34, 197, 94, 0.5);
+        }
+
+        .btn-capture:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            border-color: #555;
+            color: #555;
+        }
+
+        /* Upload Button - WHITE */
+        .btn-upload {
+            background: #ffffff;
+            color: #111;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 50px;
+            font-weight: 600;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 6px 20px rgba(255, 255, 255, 0.15);
+            transition: all 0.25s ease;
+            cursor: pointer;
+        }
+
+        .btn-upload:hover {
+            background: #f1f1f1;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(255, 255, 255, 0.25);
+        }
+
+        .btn-upload i {
+            font-size: 1.25rem;
+        }
+
+        #file-input {
+            display: none;
+        }
+
+        .no-camera {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            background: rgba(0, 0, 0, 0.75);
+            padding: 40px 50px;
+            border-radius: 20px;
+            backdrop-filter: blur(12px);
+            z-index: 10;
+        }
+
+        .no-camera i {
+            font-size: 3rem;
+            color: #f87171;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="camera-wrapper">
+    <!-- Top Brand -->
+    <div class="top-bar">
+        <div class="brand">
+            <i class="bi bi-grain"></i>
+            Rice Quality Analyzer
+        </div>
+        <div class="text-white-50 small">
+            {% if has_camera %}
+                <i class="bi bi-camera-video-fill text-success me-1"></i> Live Camera
+            {% else %}
+                <i class="bi bi-camera-video-off text-danger me-1"></i> Camera Offline
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Video Feed -->
+    <img id="video" src="{{ url_for('video_feed') }}" alt="Camera Feed">
+
+    {% if not has_camera %}
+    <div class="no-camera">
+        <i class="bi bi-camera-video-off"></i>
+        <h4 class="mb-2">No Camera Detected</h4>
+        <p class="text-white-50 mb-0">You can still upload an image to analyze</p>
+    </div>
+    {% endif %}
+
+    <!-- Controls -->
+    <div class="controls">
+        <!-- Capture -->
+        <form action="/capture" method="POST" class="m-0">
+            <button type="submit" class="btn-capture" title="Capture from camera"
+                    {% if not has_camera %}disabled{% endif %}>
+                <i class="bi bi-camera-fill"></i>
+            </button>
+        </form>
+
+        <!-- Upload (White) -->
+        <form action="/upload" method="POST" enctype="multipart/form-data" id="upload-form" class="m-0">
+            <input type="file" name="file" id="file-input" accept="image/*" required>
+            <button type="button" class="btn-upload" onclick="document.getElementById('file-input').click()">
+                <i class="bi bi-cloud-upload"></i>
+                Upload Image
+            </button>
+        </form>
+    </div>
+</div>
+
+<script>
+    document.getElementById('file-input').addEventListener('change', function () {
+        if (this.files.length > 0) {
+            document.getElementById('upload-form').submit();
+        }
+    });
+</script>
+
+</body>
+</html>
